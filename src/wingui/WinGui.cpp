@@ -3238,10 +3238,8 @@ TabMouseState TabPainter::TabStateFromMousePosition(const Point& p, bool forceOv
             continue;
         }
         iterator.NextMarker(&shape);
-        res.overClose = shape.IsVisible(pt, &gfx) != 0;
-        if (forceOverClose) {
-            res.overClose = true;
-        }
+        res.overClose = forceOverClose || (shape.IsVisible(pt, &gfx) != 0);
+        res.tabIdx = i;
         return res;
     }
     return res;
@@ -3534,6 +3532,7 @@ LRESULT TabsCtrl::WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     int tabIdx = -1;
     TabMouseState prevState;
     bool stateDidChange = false;
+    bool isDragging = false;
 
     //const char* msgName = WinMsgName(msg);
     //logfa("msg: %s\n", msgName);
@@ -3544,11 +3543,15 @@ LRESULT TabsCtrl::WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     if (WM_MOUSEMOVE == msg) {
         TrackMouseLeave(hwnd);
     }
-    if (msg >= WM_MOUSEFIRST && msg <= WM_MOUSELAST) {
+    if ((msg >= WM_MOUSEFIRST && msg <= WM_MOUSELAST) || (msg == WM_MOUSELEAVE)) {
+        isDragging = (GetCapture() == hwnd);
         bool isMsgUp = ((msg == WM_LBUTTONUP) || (msg == WM_MBUTTONUP));
         bool isMsgDown = ((msg == WM_LBUTTONDOWN) || (msg == WM_MBUTTONDOWN));
         bool forceMouseOver = (msg == WM_MBUTTONDOWN);
         mouseState = painter->TabStateFromMousePosition(mousePos, forceMouseOver);
+        if (isDragging) {
+            mouseState.overClose = false;
+        }
         tabIdx = mouseState.tabIdx;
         //CrashIf((tabIdx == -1) && (msg != WM_MOUSELEAVE));
         prevState = prevMouseState;
@@ -3576,15 +3579,17 @@ LRESULT TabsCtrl::WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         case WM_MOUSELEAVE:
             [[fallthrough]];
         case WM_MOUSEMOVE: {
-            if (!stateDidChange) {
+            int prevTabIdx = prevState.tabIdx;
+            if (tabIdx == prevTabIdx) {
                 return 0;
             }
-            bool isDragging = (GetCapture() == hwnd);
             if (!isDragging) {
                 MaybeUpdateTooltipText(this, mouseState.tabIdx);
                 return 0;
             }
-            int prevTabIdx = prevState.tabIdx;
+            if (tabIdx < 0 || prevTabIdx < 0) { // could happen for WM_MOUSELEAVE
+                return 0;
+            }
             // send notification if the highlighted tab is dragged over another
             TriggerTabDragged(this, prevTabIdx, tabIdx);
             UpdateAfterDrag(this, prevTabIdx, tabIdx);
@@ -3609,11 +3614,10 @@ LRESULT TabsCtrl::WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 
         case WM_LBUTTONUP: {
             int prevTabIdx = prevState.tabIdx;
-            if (prevTabIdx == tabIdx) {
+            if (prevTabIdx == tabIdx && mouseState.overClose) {
                 // send notification that the tab is closed
                 TriggerTabClosed(this, tabIdx);
             }
-            bool isDragging = (GetCapture() == hwnd);
             if (isDragging) {
                 ReleaseCapture();
             }
