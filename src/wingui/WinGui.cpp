@@ -3165,7 +3165,7 @@ TabInfo::~TabInfo() {
 TabPainter::TabPainter(TabsCtrl* ctrl, Size tabSize) {
     tabsCtrl = ctrl;
     hwnd = tabsCtrl->hwnd;
-    Reshape(tabSize.dx, tabSize.dy);
+    Layout(tabSize.dx, tabSize.dy);
 }
 
 TabPainter::~TabPainter() {
@@ -3174,7 +3174,7 @@ TabPainter::~TabPainter() {
 
 // Calculates tab's elements, based on its width and height.
 // Generates a GraphicsPath, which is used for painting the tab, etc.
-bool TabPainter::Reshape(int dx, int dy) {
+bool TabPainter::Layout(int dx, int dy) {
     dx--;
     if (tabSize.dx == dx && tabSize.dy == dy) {
         return false;
@@ -3209,13 +3209,13 @@ bool TabPainter::Reshape(int dx, int dy) {
 }
 
 // Finds the index of the tab, which contains the given point.
-int TabPainter::TabFromMousePosition(const Point& p, bool& overClose) const {
-    overClose = false;
+TabMouseState TabPainter::TabStateFromMousePosition(const Point& p, bool forceOverClose) const {
+    TabMouseState res;
     if (!data) {
-        return -1;
+        return res;
     }
     if (p.x < 0 || p.y < 0) {
-        return -1;
+        return res;
     }
     int dx = tabSize.dx;
     int dy = tabSize.dy;
@@ -3229,18 +3229,22 @@ int TabPainter::TabFromMousePosition(const Point& p, bool& overClose) const {
     Rect rClient = ClientRect(hwnd);
     float yPosTab = inTitleBar ? 0.0f : float(rClient.dy - dy - 1);
     gfx.TranslateTransform(1.0f, yPosTab);
-    for (int i = 0; i < Count(); i++) {
+    int nTabs = tabsCtrl->GetTabCount();
+    for (int i = 0; i < nTabs; i++) {
         Gdiplus::Point pt(point);
         gfx.TransformPoints(Gdiplus::CoordinateSpaceWorld, Gdiplus::CoordinateSpaceDevice, &pt, 1);
-        if (shape.IsVisible(pt, &gfx)) {
-            iterator.NextMarker(&shape);
-            overClose = shape.IsVisible(pt, &gfx) != 0;
-            return i;
+        if (!shape.IsVisible(pt, &gfx)) {
+            gfx.TranslateTransform(float(dx + 1), 0.0f);
+            continue;
         }
-        gfx.TranslateTransform(float(dx + 1), 0.0f);
+        iterator.NextMarker(&shape);
+        res.overClose = shape.IsVisible(pt, &gfx) != 0;
+        if (forceOverClose) {
+            res.overClose = true;
+        }
+        return res;
     }
-    overClose = false;
-    return -1;
+    return res;
 }
 
 // TODO: duplicated in Caption.cpp
@@ -3301,8 +3305,10 @@ void TabPainter::Paint(HDC hdc, RECT& rc, int tabSelected, int tabUnderMouse, bo
     sf.SetLineAlignment(StringAlignmentCenter);
     sf.SetTrimming(Gdiplus::StringTrimmingEllipsisCharacter);
 
+    int nTabs = tabsCtrl->GetTabCount();
+
     float yPosTab = inTitleBar ? 0.0f : float(ClientRect(hwnd).dy - dy - 1);
-    for (int i = 0; i < Count(); i++) {
+    for (int i = 0; i < nTabs; i++) {
         TabInfo* tab = tabsCtrl->GetTab(i);
         gfx.ResetTransform();
         gfx.TranslateTransform(1.f + (float)(dx + 1) * i - (float)rc.left, yPosTab - (float)rc.top);
@@ -3376,11 +3382,6 @@ void TabPainter::Paint(HDC hdc, RECT& rc, int tabSelected, int tabUnderMouse, bo
     }
 }
 
-int TabPainter::Count() const {
-    int n = tabsCtrl->GetTabCount();
-    return n;
-}
-
 // TODO: this is a nasty implementation
 // should probably TTM_ADDTOOL for each tab item
 // we could re-calculate it in SetTabSize()
@@ -3412,6 +3413,9 @@ static void MaybeUpdateTooltip(HWND hwnd, HWND ttHwnd, const char* text) {
 }
 
 static void MaybeUpdateTooltipText(TabsCtrl* tabsCtrl, int idx) {
+    if (idx < 0) {
+        return;
+    }
     TabInfo* tab = tabsCtrl->GetTab(idx);
     char* tooltip = tab->tooltip;
     if (str::Eq(tabsCtrl->currTooltipText, tooltip)) {
@@ -3525,11 +3529,14 @@ LRESULT TabsCtrl::WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     HDC hdc;
     TCITEMW* tcs = nullptr;
 
-    TabPainter* tab = painter;
-    Point mousePos = {GET_X_LPARAM(lp), GET_Y_LPARAM(lp)}; // for mouse messages
-    bool overClose = false;                                // if mouse cursor is over close X
-    int tabUnderMouse = -1;
-    bool isMouseLeave = false;
+    Point mousePos = {GET_X_LPARAM(lp), GET_Y_LPARAM(lp)};
+    TabMouseState mouseState;
+    int tabIdx = -1;
+    TabMouseState prevState;
+    bool stateDidChange = false;
+
+    //const char* msgName = WinMsgName(msg);
+    //logfa("msg: %s\n", msgName);
 
     if (WM_MOUSELEAVE == msg) {
         mousePos = {-1, -1};
@@ -3538,17 +3545,29 @@ LRESULT TabsCtrl::WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         TrackMouseLeave(hwnd);
     }
     if (msg >= WM_MOUSEFIRST && msg <= WM_MOUSELAST) {
-        tabUnderMouse = tab->TabFromMousePosition(mousePos, overClose);
-        lastMousePos = mousePos;
+        bool isMsgUp = ((msg == WM_LBUTTONUP) || (msg == WM_MBUTTONUP));
+        bool isMsgDown = ((msg == WM_LBUTTONDOWN) || (msg == WM_MBUTTONDOWN));
+        bool forceMouseOver = (msg == WM_MBUTTONDOWN);
+        mouseState = painter->TabStateFromMousePosition(mousePos, forceMouseOver);
+        tabIdx = mouseState.tabIdx;
+        //CrashIf((tabIdx == -1) && (msg != WM_MOUSELEAVE));
+        prevState = prevMouseState;
+        stateDidChange = (mouseState.tabIdx != prevMouseState.tabIdx) || (mouseState.overClose != prevMouseState.overClose);
+        if (stateDidChange) {
+            HwndScheduleRepaint(hwnd);
+        }
+        prevMouseState = mouseState;
+        //logfa("tab: msg: %s, tabIdx: %d (prev: %d), overClose: %d (prev: %d), stateDidChange: %d\n", msgName, tabIdx, prevState.tabIdx, mouseState.overClose, prevState.overClose, (int)stateDidChange);
     }
 
     switch (msg) {
         case WM_NCHITTEST: {
-            if (!tab->inTitleBar || hwnd == GetCapture()) {
+            if (!painter->inTitleBar || hwnd == GetCapture()) {
                 return HTCLIENT;
             }
             HwndScreenToClient(hwnd, mousePos);
-            if (-1 != tab->TabFromMousePosition(mousePos, overClose)) {
+            TabMouseState state = painter->TabStateFromMousePosition(mousePos, false);
+            if (state.tabIdx >= 0) {
                 return HTCLIENT;
             }
             return HTTRANSPARENT;
@@ -3556,94 +3575,58 @@ LRESULT TabsCtrl::WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 
         case WM_MOUSELEAVE:
             [[fallthrough]];
-
         case WM_MOUSEMOVE: {
+            if (!stateDidChange) {
+                return 0;
+            }
             bool isDragging = (GetCapture() == hwnd);
-            int hl = tabUnderMouse;
-            bool didChangeTabs = false;
-            if (isDragging && hl == -1) {
-                // preserve the highlighted tab if it's dragged outside the tabs' area
-                hl = tabHighlighted;
-                didChangeTabs = true;
+            if (!isDragging) {
+                MaybeUpdateTooltipText(this, mouseState.tabIdx);
+                return 0;
             }
-            if (tabHighlighted != hl) {
-                if (isDragging) {
-                    // send notification if the highlighted tab is dragged over another
-                    TriggerTabDragged(this, tabHighlighted, hl);
-                    UpdateAfterDrag(this, tabHighlighted, hl);
-                }
-                HwndScheduleRepaint(hwnd);
-                tabHighlighted = hl;
-                didChangeTabs = true;
-            }
-            int xHl = -1;
-            if (overClose && !isDragging) {
-                xHl = hl;
-            }
-            // logfa("inX=%d, hl=%d, xHl=%d, xHighlighted=%d\n", (int)inX, hl, xHl, tab->xHighlighted);
-            if (tabHighlightedClose != xHl) {
-                // logfa("before invalidate, xHl=%d, xHighlited=%d\n", xHl, tab->xHighlighted);
-                HwndScheduleRepaint(hwnd);
-                tabHighlightedClose = xHl;
-            }
-            if (!overClose) {
-                tabBeingClosed = -1;
-            }
-            if (didChangeTabs && tabHighlighted >= 0) {
-                auto tabsCtrl = tab->tabsCtrl;
-                MaybeUpdateTooltipText(tabsCtrl, tabHighlighted);
-            }
+            int prevTabIdx = prevState.tabIdx;
+            // send notification if the highlighted tab is dragged over another
+            TriggerTabDragged(this, prevTabIdx, tabIdx);
+            UpdateAfterDrag(this, prevTabIdx, tabIdx);
             return 0;
         }
 
         case WM_LBUTTONDOWN: {
-            if (overClose) {
-                HwndScheduleRepaint(hwnd);
-                tabBeingClosed = tabUnderMouse;
-            } else if (tabUnderMouse != -1) {
-                int selectedTab = GetSelected();
-                if (tabUnderMouse != selectedTab) {
-                    bool stopChange = TriggerSelectionChanging(this);
-                    if (stopChange) {
-                        return 0;
-                    }
-                    SetSelected(tabUnderMouse);
-                    TriggerSelectionChanged(this);
-                    return 0;
-                }
+            int selectedTab = GetSelected();
+            if (tabIdx == selectedTab) {
+                // start dragging
                 SetCapture(hwnd);
+                return 0;
             }
+            bool stopChange = TriggerSelectionChanging(this);
+            if (stopChange) {
+                return 0;
+            }
+            SetSelected(tabIdx);
+            TriggerSelectionChanged(this);
             return 0;
         }
 
         case WM_LBUTTONUP: {
-            if (tabBeingClosed != -1) {
+            int prevTabIdx = prevState.tabIdx;
+            if (prevTabIdx == tabIdx) {
                 // send notification that the tab is closed
-                TriggerTabClosed(this, tabBeingClosed);
-                HwndScheduleRepaint(hwnd);
-                tabBeingClosed = -1;
+                TriggerTabClosed(this, tabIdx);
             }
             bool isDragging = (GetCapture() == hwnd);
             if (isDragging) {
-                isDragging = false;
                 ReleaseCapture();
             }
             return 0;
         }
 
-        case WM_MBUTTONDOWN: {
-            // middle-clicking unconditionally closes the tab
-            tabBeingClosed = tabUnderMouse;
-            HwndScheduleRepaint(hwnd);
-            return 0;
-        }
+        // WM_MBUTTONDOWN was already handled 
 
         case WM_MBUTTONUP: {
-            if (tabBeingClosed < 0) {
-                return 0;
+            int prevTabIdx = prevState.tabIdx;
+            if (prevTabIdx == tabIdx) {
+                TriggerTabClosed(this, tabIdx);
             }
-            TriggerTabClosed(this, tabBeingClosed);
-            HwndScheduleRepaint(hwnd);
             return 0;
         }
 
@@ -3656,11 +3639,11 @@ LRESULT TabsCtrl::WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             // TODO: when is wp != nullptr?
             hdc = wp ? (HDC)wp : BeginPaint(hwnd, &ps);
 
-            tabUnderMouse = tab->TabFromMousePosition(lastMousePos, overClose);
-
             DoubleBuffer buffer(hwnd, Rect::FromRECT(rc));
             int tabSelected = GetSelected();
-            tab->Paint(buffer.GetDC(), rc, tabSelected, tabUnderMouse, overClose);
+            int tabUnderMouse = prevMouseState.tabIdx;
+            bool overClose = prevMouseState.overClose;
+            painter->Paint(buffer.GetDC(), rc, tabSelected, tabUnderMouse, overClose);
             buffer.Flush(hdc);
 
             ValidateRect(hwnd, nullptr);
@@ -3743,7 +3726,6 @@ int TabsCtrl::InsertTab(int idx, TabInfo* tab) {
             SetSelected(selectedTab + 1);
         }
     }
-    tabBeingClosed = -1;
     currTooltipText = tab->tooltip;
     return insertedIdx;
 }
@@ -3765,7 +3747,6 @@ UINT_PTR TabsCtrl::RemoveTab(int idx) {
     UINT_PTR userData = tab->userData;
     tabs.RemoveAt(idx);
     delete tab;
-    tabBeingClosed = -1;
     int selectedTab = GetSelected();
     if (idx < selectedTab) {
         SetSelected(selectedTab - 1);
@@ -3782,9 +3763,6 @@ TabInfo* TabsCtrl::GetTab(int idx) {
 // Note: the caller should take care of deleting userData
 void TabsCtrl::RemoveAllTabs() {
     TabCtrl_DeleteAllItems(hwnd);
-    tabHighlighted = -1;
-    tabBeingClosed = -1;
-    tabHighlightedClose = -1;
     DeleteVecMembers(tabs);
     tabs.Reset();
 }
@@ -3802,11 +3780,10 @@ int TabsCtrl::SetSelected(int idx) {
 
 void TabsCtrl::SetTabSize(Size sz) {
     TabCtrl_SetItemSize(hwnd, sz.dx, sz.dy);
-    bool didReshape = painter->Reshape(sz.dx, sz.dy);
-    if (didReshape) {
+    bool didLayout = painter->Layout(sz.dx, sz.dy);
+    if (didLayout) {
         HwndScheduleRepaint(hwnd);
     }
-    tabBeingClosed = -1;
     // MaybeUpdateTooltipText(this);
 }
 

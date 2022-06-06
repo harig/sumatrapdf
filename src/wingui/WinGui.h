@@ -642,6 +642,11 @@ struct TabsCtrl;
 
 #define kTabDefaultBgCol (COLORREF) - 1
 
+struct TabMouseState {
+    int tabIdx = -1;
+    bool overClose = false;
+};
+
 // TODO: make it private to WinGui.cpp
 struct TabPainter {
     TabsCtrl* tabsCtrl = nullptr;
@@ -673,10 +678,9 @@ struct TabPainter {
 
     TabPainter(TabsCtrl* ctrl, Size tabSize);
     ~TabPainter();
-    bool Reshape(int dx, int dy);
-    int TabFromMousePosition(const Point& p, bool& overClose) const;
+    bool Layout(int dx, int dy);
+    TabMouseState TabStateFromMousePosition(const Point& p, bool forceOverClose) const;
     void Paint(HDC hdc, RECT& rc, int tabSelected, int tabUnderMouse, bool underMouseOverClose) const;
-    int Count() const;
 };
 
 struct TabClosedEvent {
@@ -722,6 +726,7 @@ struct TabPainter;
 struct TabInfo {
     char* text = nullptr;
     char* tooltip = nullptr;
+    bool isPinned = false; // TODO: future use
     UINT_PTR userData = 0;
 
     TabInfo() = default;
@@ -737,10 +742,7 @@ struct TabsCtrl : Wnd {
     Vec<TabInfo*> tabs;
 
     // tracking state of which tab is highlighted etc.
-    int tabHighlighted = -1;
-    int tabHighlightedClose = -1;
-    int tabBeingClosed = -1;
-    Point lastMousePos;
+    TabMouseState prevMouseState;
 
     TabClosedHandler onTabClosed = nullptr;
     TabsSelectionChangingHandler onSelectionChanging = nullptr;
