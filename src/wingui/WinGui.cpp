@@ -3560,7 +3560,10 @@ LRESULT TabsCtrl::WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             HwndScheduleRepaint(hwnd);
         }
         prevMouseState = mouseState;
-        //logfa("tab: msg: %s, tabIdx: %d (prev: %d), overClose: %d (prev: %d), stateDidChange: %d\n", msgName, tabIdx, prevState.tabIdx, mouseState.overClose, prevState.overClose, (int)stateDidChange);
+#if 0
+        const char* msgName = WinMsgName(msg);
+        logfa("tab: msg: %s, tabIdx: %d (prev: %d), overClose: %d (prev: %d), stateDidChange: %d, isDraggin: %d\n", msgName, tabIdx, prevState.tabIdx, mouseState.overClose, prevState.overClose, (int)stateDidChange, (int)isDragging);
+#endif
     }
 
     switch (msg) {
@@ -3597,9 +3600,13 @@ LRESULT TabsCtrl::WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         }
 
         case WM_LBUTTONDOWN: {
+            if (mouseState.overClose) {
+                return 0;
+            }
             int selectedTab = GetSelected();
             if (tabIdx == selectedTab) {
                 // start dragging
+                // TODO: only start dragging when mouse moved by drag distance
                 SetCapture(hwnd);
                 return 0;
             }
