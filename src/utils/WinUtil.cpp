@@ -1123,7 +1123,16 @@ Rect GetVirtualScreenRect() {
     return result;
 }
 
+<<<<<<< Updated upstream
 void PaintRect(HDC hdc, const Rect rect) {
+=======
+void FillRect(HDC hdc, const Rect& r, HBRUSH br) {
+    RECT r2 = ToRECT(r);
+    FillRect(hdc, &r2, br);
+}
+
+void DrawRect(HDC hdc, const Rect rect) {
+>>>>>>> Stashed changes
     MoveToEx(hdc, rect.x, rect.y, nullptr);
     LineTo(hdc, rect.x + rect.dx - 1, rect.y);
     LineTo(hdc, rect.x + rect.dx - 1, rect.y + rect.dy - 1);
@@ -2689,6 +2698,22 @@ int HdcDrawText(HDC hdc, const char* s, int sLen, RECT* r, UINT format) {
     }
     sLen = (int)str::Len(ws);
     return DrawTextW(hdc, ws, sLen, r, format);
+}
+
+int HdcDrawText(HDC hdc, const char* s, int sLen, const Rect& r, UINT format) {
+        if (!s) {
+        return 0;
+    }
+    if (sLen <= 0) {
+        sLen = (int)str::Len(s);
+    }
+    WCHAR* ws = ToWstrTemp(s, (size_t)sLen);
+    if (!ws) {
+        return 0;
+    }
+    sLen = (int)str::Len(ws);
+    RECT r2 = ToRECT(r);
+    return DrawTextW(hdc, ws, sLen, &r2, format);
 }
 
 // uses the same logic as HdcDrawText

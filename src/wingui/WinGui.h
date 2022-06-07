@@ -699,8 +699,9 @@ struct TabInfo {
     ~TabInfo();
 
     // for internal use
-    Rect pos;
-    Rect closePos;
+    Rect r;
+    Rect rText;
+    Rect rClose;
 };
 
 struct TabsCtrl : Wnd {
@@ -725,26 +726,34 @@ struct TabsCtrl : Wnd {
 
     // TODO: set those to reasonable defaults
     COLORREF currBgCol = kTabDefaultBgCol;
+
     COLORREF tabBackgroundBg = 0;
     COLORREF tabBackgroundText = 0;
     COLORREF tabBackgroundCloseX = 0;
     COLORREF tabBackgroundCloseCircle = 0;
+
     COLORREF tabSelectedBg = 0;
     COLORREF tabSelectedText = 0;
     COLORREF tabSelectedCloseX = 0;
     COLORREF tabSelectedCloseCircle = 0;
+
     COLORREF tabHighlightedBg = 0;
     COLORREF tabHighlightedText = 0;
     COLORREF tabHighlightedCloseX = 0;
     COLORREF tabHighlightedCloseCircle = 0;
+
     COLORREF tabHoveredCloseX = 0;
     COLORREF tabHoveredCloseCircle = 0;
+
     COLORREF tabClickedCloseX = 0;
     COLORREF tabClickedCloseCircle = 0;
 
+<<<<<<< Updated upstream
     PathData* data = nullptr;
     Size tabSize;
 
+=======
+>>>>>>> Stashed changes
     TabsCtrl();
     ~TabsCtrl() override;
 
@@ -780,7 +789,7 @@ struct TabsCtrl : Wnd {
 
     bool Layout(int dx, int dy);
     TabMouseState TabStateFromMousePosition(const Point& p);
-    void Paint(HDC hdc, RECT& rc, int tabSelected, int tabUnderMouse, bool underMouseOverClose);
+    void Paint(HDC hdc, RECT& rc);
 };
 
 template <typename T>
@@ -800,3 +809,22 @@ int RunMessageLoop(HACCEL accelTable, HWND hwndDialog);
 // TODO: those are hacks
 HWND GetCurrentModelessDialog();
 void SetCurrentModelessDialog(HWND);
+<<<<<<< Updated upstream
+=======
+
+#define kColCloseX RGB(0xa0, 0xa0, 0xa0)
+#define kColCloseXHover RGB(0xf9, 0xeb, 0xeb)   // white-ish
+#define kColCloseXHoverBg RGB(0xC1, 0x35, 0x35) // red-ish
+
+struct DrawCloseButtonArgs {
+    HDC hdc = nullptr;
+    Rect r;
+    bool isHover = false;
+    COLORREF colHoverBg = kColCloseXHoverBg;
+    COLORREF colX = kColCloseX;
+    COLORREF colXHover = kColCloseXHover;
+};
+
+void DrawCloseButton(const DrawCloseButtonArgs&);
+void DrawCloseButton2(const DrawCloseButtonArgs&);
+>>>>>>> Stashed changes

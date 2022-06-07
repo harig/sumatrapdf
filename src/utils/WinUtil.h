@@ -108,8 +108,14 @@ void LimitWindowSizeToScreen(HWND hwnd, SIZE& size);
 Rect GetFullscreenRect(HWND);
 Rect GetVirtualScreenRect();
 
+<<<<<<< Updated upstream
 void PaintRect(HDC, Rect);
 void PaintLine(HDC, Rect);
+=======
+void FillRect(HDC, const Rect&, HBRUSH);
+void DrawRect(HDC, Rect);
+void DrawLine(HDC, Rect);
+>>>>>>> Stashed changes
 void DrawCenteredText(HDC hdc, Rect r, const WCHAR* txt, bool isRTL = false);
 void DrawCenteredText(HDC, const RECT& r, const WCHAR* txt, bool isRTL = false);
 Size TextSizeInHwnd(HWND, const WCHAR*, HFONT = nullptr);
@@ -306,6 +312,7 @@ void HwndSetVisibility(HWND hwnd, bool visible);
 bool TextOutUtf8(HDC hdc, int x, int y, const char* s, int sLen = 0);
 bool GetTextExtentPoint32Utf8(HDC hdc, const char* s, int sLen, LPSIZE psizl);
 int HdcDrawText(HDC hdc, const char* s, int sLen, RECT* r, UINT format);
+int HdcDrawText(HDC hdc, const char* s, int sLen, const Rect& r, UINT format);
 Size HdcMeasureText(HDC hdc, const char* s, UINT format);
 
 bool DeleteObjectSafe(HGDIOBJ*);

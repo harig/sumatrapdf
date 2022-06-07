@@ -698,17 +698,19 @@ LRESULT Wnd::WndProcDefault(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
             return 0;
         }
 
-        // windows don't support WM_GETFONT / WM_SETFONT
-        // only controls do. not sure if we won't interfere
-        // with control handling
-        // TODO: maybe when font is nullptr, ask the original proc
+        // windows don't support WM_GETFONT / WM_SETFONT, only controls do
         case WM_GETFONT: {
-            return (LRESULT)font;
+            if (font != nullptr) {
+                return (LRESULT)font;
+            }
+            // let the original window proc respond
+            break;
         }
 
         case WM_SETFONT: {
             font = (HFONT)wparam;
-            return 0;
+            // for controls let it through
+            break;
         }
 
         case WM_COMMAND: {
@@ -1104,12 +1106,11 @@ void Wnd::UnSubclass() {
 }
 
 HFONT Wnd::GetFont() {
-    return font;
+    return HwndGetFont(hwnd);
 }
 
 void Wnd::SetFont(HFONT fontIn) {
-    font = fontIn;
-    // TODO: for controls, send WM_SETFONT message to original wndproc function
+    HwndSetFont(hwnd, fontIn);
 }
 
 void Wnd::SetIsEnabled(bool isEnabled) const {
@@ -3162,74 +3163,111 @@ TabInfo::~TabInfo() {
     str::Free(tooltip);
 }
 
+// desired space between top of the text in tab and top of the tab
+#define PADDING_TOP 4
+// desired space between bottom of the text in tab and bottom of the tab
+#define PADDING_BOTTOM 4
+
+// space to the left of tab label
+#define PADDING_LEFT 8
+// empty space to the righ of tab label
+#define PADDING_RIGHT 8
+
 // Calculates tab's elements, based on its width and height.
 // Generates a GraphicsPath, which is used for painting the tab, etc.
+<<<<<<< Updated upstream
 bool TabsCtrl::Layout(int dx, int dy) {
     dx--;
     if (tabSize.dx == dx && tabSize.dy == dy) {
         return false;
     }
     tabSize = {dx, dy};
-
-    GraphicsPath shape;
-    // define tab's body
-    shape.AddRectangle(Gdiplus::Rect(0, 0, dx, dy));
-    shape.SetMarker();
-
-    // define "x"'s circle
-    int c = int((float)dy * 0.78f + 0.5f); // size of bounding square for the circle
-    int maxC = DpiScale(hwnd, 17);
-    if (dx > maxC) {
-        c = DpiScale(hwnd, 17);
+=======
+void TabsCtrl::Layout() {
+    HwndScheduleRepaint(hwnd);
+    Rect rect = ClientRect(hwnd);
+    int dy = rect.dy;
+    int nTabs = GetTabCount();
+    if (nTabs == 0) {
+        return;
     }
-    Gdiplus::Point p(dx - c - DpiScale(hwnd, 3), (dy - c) / 2); // circle's position
-    shape.AddEllipse(p.X, p.Y, c, c);
-    shape.SetMarker();
-    // define "x"
-    int o = int((float)c * 0.286f + 0.5f); // "x"'s offset
-    shape.AddLine(p.X + o, p.Y + o, p.X + c - o, p.Y + c - o);
-    shape.StartFigure();
-    shape.AddLine(p.X + c - o, p.Y + o, p.X + o, p.Y + c - o);
-    shape.SetMarker();
+    HFONT font = GetFont();
+    LOGFONTW lf;
+    TEXTMETRICW textMetrics;
+    GetObject(font, sizeof(LOGFONTW), &lf);
 
+    ScopedGetDC hdc(hwnd);
+    ScopedSelectFont prevFont(hdc, font);
+    GetTextMetricsW(hdc, &textMetrics);
+    int fontDy = textMetrics.tmHeight;
+>>>>>>> Stashed changes
+
+    int padLeft = PADDING_LEFT;
+    int padRight = PADDING_RIGHT;
+    DpiScale(hwnd, padLeft, padRight);
+
+    int closeButtonDy = (textMetrics.tmAscent / 2) + DpiScale(hwnd, 1);
+    int closeButtonY = (dy - closeButtonDy) / 2;
+    if (closeButtonY < 0) {
+        closeButtonDy = dy - 2;
+        closeButtonY = 2;
+    }
+
+<<<<<<< Updated upstream
     delete data;
     data = new PathData();
     shape.GetPathData(data);
     return true;
+=======
+    auto avgDx = (rect.dx - 3) / nTabs;
+    int tabDx = std::min(tabDefaultDx, avgDx);
+    tabDx--;
+
+    int x = 0;
+    for (TabInfo* ti : tabs) {
+        int xStart = x;
+        x += padLeft;
+
+        uint fmt = DT_SINGLELINE | DT_NOPREFIX;
+        Size sz = HdcMeasureText(hdc, ti->text, fmt);
+
+        // position y of title text and 'x' circle
+        int titleY = 0;
+        if (dy > sz.dy) {
+            titleY = (dy - sz.dy) / 2;
+        }
+        ti->rText = {x, titleY, sz.dx, sz.dy};
+
+        // TODO: implement max dx of the tab
+        x += sz.dx;
+        x += padRight;
+        bool hasClose = !ti->isPinned;
+        ti->rClose = { 0, 0, 0, 0 };
+        if (hasClose) {
+            ti->rClose = {x, closeButtonY, closeButtonDy, closeButtonDy};
+            x += closeButtonDy;
+            x += padRight;
+        }
+        int dx = (x - xStart);
+        ti->r = {xStart, 0, dx, dy};
+    }
+>>>>>>> Stashed changes
 }
 
 // Finds the index of the tab, which contains the given point.
 TabMouseState TabsCtrl::TabStateFromMousePosition(const Point& p) {
     TabMouseState res;
-    if (!data) {
-        return res;
-    }
     if (p.x < 0 || p.y < 0) {
         return res;
     }
-    int dx = tabSize.dx;
-    int dy = tabSize.dy;
-    Gdiplus::Point point(p.x, p.y);
-    Graphics gfx(hwnd);
-    GraphicsPath shapes(data->Points, data->Types, data->Count);
-    GraphicsPath shape;
-    Gdiplus::GraphicsPathIterator iterator(&shapes);
-    iterator.NextMarker(&shape);
-
-    Rect rClient = ClientRect(hwnd);
-    float yPosTab = inTitleBar ? 0.0f : float(rClient.dy - dy - 1);
-    gfx.TranslateTransform(1.0f, yPosTab);
     int nTabs = GetTabCount();
     for (int i = 0; i < nTabs; i++) {
-        Gdiplus::Point pt(point);
-        gfx.TransformPoints(Gdiplus::CoordinateSpaceWorld, Gdiplus::CoordinateSpaceDevice, &pt, 1);
-        if (!shape.IsVisible(pt, &gfx)) {
-            gfx.TranslateTransform(float(dx + 1), 0.0f);
+        TabInfo* ti = tabs[i];
+        if (!ti->r.Contains(p)) {
             continue;
         }
-        iterator.NextMarker(&shape);
         res.tabIdx = i;
-        res.overClose = shape.IsVisible(pt, &gfx) != 0;
+        res.overClose = ti->rClose.Contains(p);
         return res;
     }
     return res;
@@ -3249,6 +3287,7 @@ static void PaintParentBackground(HWND hwnd, HDC hdc) {
 }
 
 // Paints the tabs that intersect the window's update rectangle.
+<<<<<<< Updated upstream
 void TabsCtrl::Paint(HDC hdc, RECT& rc, int tabSelected, int tabUnderMouse, bool underMouseOverClose) {
     IntersectClipRect(hdc, rc.left, rc.top, rc.right, rc.bottom);
 #if 0
@@ -3299,12 +3338,53 @@ void TabsCtrl::Paint(HDC hdc, RECT& rc, int tabSelected, int tabUnderMouse, bool
         TabInfo* tab = GetTab(i);
         gfx.ResetTransform();
         gfx.TranslateTransform(1.f + (float)(dx + 1) * i - (float)rc.left, yPosTab - (float)rc.top);
+=======
+void TabsCtrl::Paint(HDC hdc, RECT& rc) {
+    TabMouseState tabState = TabStateFromMousePosition(lastMousePos);
+    int tabUnderMouse = tabState.tabIdx;
+    bool overClose = tabState.overClose;
+    int tabSelected = GetSelected();
 
-        if (!gfx.IsVisible(0, 0, dx + 1, dy + 1)) {
+    bool isTranslucentMode = inTitleBar && dwm::IsCompositionEnabled();
+    if (isTranslucentMode) {
+        PaintParentBackground(hwnd, hdc);
+    } else {
+        // note: not sure what color should be used here and painting
+        // background works fine
+        HBRUSH brush = CreateSolidBrush(RGB(0xff,0x33,0xff));
+        FillRect(hdc, &rc, brush);
+        DeleteObject(brush);
+    }
+
+    HFONT fnt = GetFont();
+    DrawCloseButtonArgs args;
+    args.hdc = hdc;
+    // args.colX = colX;
+    // args.colHoverBg = colHoverBg;
+    // args.colXHover = colXHover;
+
+    // COLORREF colHoverBg = kColCloseXHoverBg;
+    // COLORREF colX = kColCloseX;
+    // COLORREF colXHover = kColCloseXHover;    
+
+    currBgCol = RGB(0xcc, 0, 0xcc);
+    AutoDeleteBrush brush(CreateSolidBrush(currBgCol));
+    FillRect(hdc, &rc, brush);
+    if (true) {
+        return;
+    }
+
+    ScopedSelectFont f(hdc, fnt);
+    uint opts = ETO_OPAQUE;
+    uint fmt = DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS;
+>>>>>>> Stashed changes
+
+    int i = 0;
+    for (TabInfo* ti : tabs) {
+        if (!ti->text) {
             continue;
         }
 
-        // Get the correct colors based on the state and the current theme
         COLORREF bgCol = tabBackgroundBg;
         COLORREF textCol = tabBackgroundText;
         COLORREF xColor = tabBackgroundCloseX;
@@ -3321,51 +3401,28 @@ void TabsCtrl::Paint(HDC hdc, RECT& rc, int tabSelected, int tabUnderMouse, bool
             xColor = tabHighlightedCloseX;
             circleColor = tabHighlightedCloseCircle;
         }
-        if ((tabUnderMouse == i) && underMouseOverClose) {
+        if ((tabUnderMouse == i) && overClose) {
             xColor = tabHoveredCloseX;
             circleColor = tabHoveredCloseCircle;
         }
-#if 0
-        if (tabsCtrl->tabBeingClosed == i) {
-            xColor = tabClickedCloseX;
-            circleColor = tabClickedCloseCircle;
+
+        bgCol = RGB(0xff, 0, 0);
+        textCol = RGB(0, 0xff, 0);
+        SetTextColor(hdc, textCol);
+        SetBkColor(hdc, bgCol);
+
+        AutoDeleteBrush brush2(CreateSolidBrush(bgCol));
+        FillRect(hdc, ti->r, brush2);
+
+        HdcDrawText(hdc, ti->text, -1, ti->rText, fmt);
+
+        bool paintClose = true;
+        if (paintClose) {
+            //args.isHover = isCursorOverClose && (i == priv->tabIdxUnderCursor);
+            args.r = ti->rClose;
+            DrawCloseButton2(args);
         }
-#endif
-
-        // paint tab's body
-        gfx.SetCompositingMode(Gdiplus::CompositingModeSourceCopy);
-        iterator.NextMarker(&shape);
-        br.SetColor(GdiRgbFromCOLORREF(bgCol));
-        Gdiplus::Point points[4];
-        shape.GetPathPoints(points, 4);
-        Gdiplus::Rect body(points[0].X, points[0].Y, points[2].X - points[0].X, points[2].Y - points[0].Y);
-        body.Inflate(0, 0);
-        gfx.SetClip(body);
-        body.Inflate(5, 5);
-        gfx.FillRectangle(&br, body);
-        gfx.ResetClip();
-
-        // draw tab's text
-        gfx.SetCompositingMode(Gdiplus::CompositingModeSourceOver);
-        br.SetColor(GdiRgbFromCOLORREF(textCol));
-        char* text = tab->text;
-        gfx.DrawString(ToWstrTemp(text), -1, &f, layout, &sf, &br);
-
-        // paint "x"'s circle
-        iterator.NextMarker(&shape);
-        // bool closeCircleEnabled = true;
-        bool paintOverClose = (tabUnderMouse == i) && underMouseOverClose;
-        // TODO: (tabsCtrl->tabBeingClosed == i
-        if (paintOverClose /*&& closeCircleEnabled*/) {
-            br.SetColor(GdiRgbFromCOLORREF(circleColor));
-            gfx.FillPath(&br, &shape);
-        }
-
-        // paint "x"
-        iterator.NextMarker(&shape);
-        pen.SetColor(GdiRgbFromCOLORREF(xColor));
-        gfx.DrawPath(&pen, &shape);
-        iterator.Rewind();
+        i++;
     }
 }
 
@@ -3429,7 +3486,6 @@ TabsCtrl::TabsCtrl() {
 }
 
 TabsCtrl::~TabsCtrl() {
-    delete data;
 }
 
 static void TriggerSelectionChanged(TabsCtrl* tabs) {
@@ -3644,20 +3700,21 @@ LRESULT TabsCtrl::WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             return TRUE;
 
         case WM_PAINT: {
+#if 0
             RECT rc;
             GetUpdateRect(hwnd, &rc, FALSE);
+#else
+            RECT rc = ClientRECT(hwnd);
+#endif
             // TODO: when is wp != nullptr?
             hdc = wp ? (HDC)wp : BeginPaint(hwnd, &ps);
-
-            tabState = TabStateFromMousePosition(lastMousePos);
-            tabUnderMouse = tabState.tabIdx;
-            overClose = tabState.overClose;
-
+#if 0
             DoubleBuffer buffer(hwnd, Rect::FromRECT(rc));
-            int tabSelected = GetSelected();
-            Paint(buffer.GetDC(), rc, tabSelected, tabUnderMouse, overClose);
+            Paint(buffer.GetDC(), rc);
             buffer.Flush(hdc);
-
+#else
+            Paint(hdc, rc);
+#endif
             ValidateRect(hwnd, nullptr);
             if (!wp) {
                 EndPaint(hwnd, &ps);
